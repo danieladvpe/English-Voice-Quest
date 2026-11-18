@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --color-duo-green: #58cc02;
+  --color-duo-green-dark: #46a302;
+  --color-duo-blue: #1cb0f6;
+  --color-duo-blue-dark: #1899d6;
+  --color-duo-red: #ff4b4b;
+  --color-duo-red-dark: #ea2b2b;
+  --color-duo-gold: #ffc800;
+  --color-duo-gold-dark: #e5a500;
+  --color-duo-orange: #ff9600;
+  --color-duo-purple: #ce82ff;
+  --color-duo-gray: #e5e5e5;
+  --color-duo-gray-dark: #afafaf;
+  --color-duo-text: #3c3c3c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-white text-duo-text font-sans antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Botão "3D" estilo Duolingo */
+@utility btn-3d {
+  @apply relative select-none rounded-2xl font-extrabold uppercase tracking-wide transition-transform active:translate-y-1 disabled:cursor-not-allowed;
+}
+@utility btn-primary {
+  @apply btn-3d bg-duo-green text-white shadow-[0_4px_0_var(--color-duo-green-dark)] active:shadow-none hover:brightness-105;
+}
+@utility btn-danger {
+  @apply btn-3d bg-duo-red text-white shadow-[0_4px_0_var(--color-duo-red-dark)] active:shadow-none;
+}
+@utility btn-blue {
+  @apply btn-3d bg-duo-blue text-white shadow-[0_4px_0_var(--color-duo-blue-dark)] active:shadow-none;
+}
+@utility btn-disabled {
+  @apply btn-3d bg-duo-gray text-duo-gray-dark shadow-none active:translate-y-0;
+}
+@utility btn-ghost {
+  @apply btn-3d border-2 border-duo-gray bg-white text-duo-gray-dark shadow-[0_3px_0_var(--color-duo-gray)] active:shadow-none hover:bg-gray-50;
+}
+@utility chip {
+  @apply select-none rounded-xl border-2 border-duo-gray bg-white px-3 py-2 font-bold shadow-[0_3px_0_var(--color-duo-gray)] transition active:translate-y-0.5 active:shadow-none;
+}
