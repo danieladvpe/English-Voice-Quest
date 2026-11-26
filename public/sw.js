@@ -1,6 +1,6 @@
-// SpeakQuest Service Worker - cache simples "network-first" para o app shell.
-const CACHE = 'speakquest-v1'
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg']
+// SpeakQuest Service Worker - cache "network-first" compatível com subcaminhos (ex.: GitHub Pages).
+const CACHE = 'speakquest-v2'
+const SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)))
@@ -24,6 +24,6 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE).then((c) => c.put(request, copy))
         return res
       })
-      .catch(() => caches.match(request).then((r) => r || caches.match('/index.html'))),
+      .catch(() => caches.match(request).then((r) => r || caches.match('./index.html'))),
   )
 })

@@ -9,9 +9,9 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// Registra o Service Worker apenas em produção (evita cache durante o dev).
+// Registra o Service Worker apenas em produção (compatível com raiz ou subcaminho GitHub Pages).
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {})
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
   })
 }

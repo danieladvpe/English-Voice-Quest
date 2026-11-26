@@ -227,11 +227,13 @@ function ResetButton() {
       <button
         type="button"
         onClick={() => {
-          if (confirm('Apagar todo o progresso (XP, ofensiva e lições)?')) game.resetProgress()
+          if (confirm(`Apagar todo o progresso de "${game.activeProfile.name}" (XP, ofensiva e lições)?`)) {
+            game.resetProgress()
+          }
         }}
         className="text-xs font-bold uppercase text-duo-gray-dark hover:text-duo-red"
       >
-        Resetar progresso
+        Resetar progresso de {game.activeProfile.name}
       </button>
     </div>
   )

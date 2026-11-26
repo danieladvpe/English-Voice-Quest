@@ -2,14 +2,17 @@ import { useSyncExternalStore } from 'react'
 import { ALL_LESSONS } from '../data/lessons'
 
 // =====================================================================
-// Store de gamificação persistido em localStorage
-// (implementação leve com useSyncExternalStore, sem dependências)
+// Store de gamificação persistido em localStorage com suporte a
+// Múltiplos Perfis Familiares (implementação leve com useSyncExternalStore)
 // =====================================================================
 
-const STORAGE_KEY = 'speakquest:v1'
+const LEGACY_STORAGE_KEY = 'speakquest:v1'
+const FAMILY_STORAGE_KEY = 'speakquest:family:v1'
 export const MAX_HEARTS = 5
 /** Regeneração passiva: +1 coração a cada 30 minutos. */
 const HEART_REGEN_MS = 30 * 60 * 1000
+
+export const FAMILY_AVATARS = ['🦁', '🦊', '🐼', '🦉', '🐯', '🦄', '🐸', '🐧', '🐨', '🚀', '👑', '⚡'] as const
 
 export interface LessonProgress {
   timesCompleted: number
@@ -28,7 +31,19 @@ export interface GameState {
   lessons: Record<string, LessonProgress>
 }
 
-const initialState: GameState = {
+export interface FamilyProfile extends GameState {
+  id: string
+  name: string
+  avatar: string
+  createdAt: string
+}
+
+interface FamilyStoreState {
+  activeProfileId: string
+  profiles: FamilyProfile[]
+}
+
+const initialGameState: GameState = {
   xp: 0,
   streak: 0,
   longestStreak: 0,
@@ -51,19 +66,12 @@ function yesterday(): string {
   return localDate(d)
 }
 
-// ---------- persistência ----------
-function load(): GameState {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { ...initialState }
-    return normalize({ ...initialState, ...JSON.parse(raw) })
-  } catch {
-    return { ...initialState }
-  }
+function makeId(): string {
+  return `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
 }
 
 /** Aplica regras dependentes do tempo: quebra de ofensiva e regeneração de vidas. */
-function normalize(s: GameState): GameState {
+function normalizeProfile(s: FamilyProfile): FamilyProfile {
   let next = s
   // Ofensiva quebra se o último dia ativo foi antes de ontem
   if (next.lastActiveDate && next.lastActiveDate !== localDate() && next.lastActiveDate !== yesterday() && next.streak > 0) {
@@ -75,23 +83,95 @@ function normalize(s: GameState): GameState {
     const gained = Math.floor(elapsed / HEART_REGEN_MS)
     if (gained > 0) {
       const hearts = Math.min(MAX_HEARTS, next.hearts + gained)
-      next = { ...next, hearts, lastHeartUpdate: hearts === MAX_HEARTS ? Date.now() : next.lastHeartUpdate + gained * HEART_REGEN_MS }
+      next = {
+        ...next,
+        hearts,
+        lastHeartUpdate: hearts === MAX_HEARTS ? Date.now() : next.lastHeartUpdate + gained * HEART_REGEN_MS,
+      }
     }
   }
   return next
 }
 
-let state: GameState = load()
+function normalizeFamily(store: FamilyStoreState): FamilyStoreState {
+  let changed = false
+  const profiles = store.profiles.map((p) => {
+    const n = normalizeProfile(p)
+    if (n !== p) changed = true
+    return n
+  })
+  const activeExists = profiles.some((p) => p.id === store.activeProfileId)
+  const activeProfileId = activeExists ? store.activeProfileId : (profiles[0]?.id ?? 'default')
+  if (!changed && activeProfileId === store.activeProfileId) return store
+  return { activeProfileId, profiles }
+}
+
+// ---------- persistência (com migração transparente do formato v1) ----------
+function load(): FamilyStoreState {
+  try {
+    const rawFamily = localStorage.getItem(FAMILY_STORAGE_KEY)
+    if (rawFamily) {
+      const parsed = JSON.parse(rawFamily) as FamilyStoreState
+      if (Array.isArray(parsed.profiles) && parsed.profiles.length > 0) {
+        return normalizeFamily(parsed)
+      }
+    }
+
+    // Migra dados existentes do speakquest:v1 se houver
+    const rawLegacy = localStorage.getItem(LEGACY_STORAGE_KEY)
+    const legacyGame: GameState = rawLegacy ? { ...initialGameState, ...JSON.parse(rawLegacy) } : { ...initialGameState }
+    const defaultProfile: FamilyProfile = normalizeProfile({
+      ...legacyGame,
+      id: 'default',
+      name: 'Jogador 1',
+      avatar: '🦁',
+      createdAt: new Date().toISOString(),
+    })
+
+    const initialStore: FamilyStoreState = {
+      activeProfileId: defaultProfile.id,
+      profiles: [defaultProfile],
+    }
+    localStorage.setItem(FAMILY_STORAGE_KEY, JSON.stringify(initialStore))
+    return initialStore
+  } catch {
+    const fallback: FamilyProfile = {
+      ...initialGameState,
+      id: 'default',
+      name: 'Jogador 1',
+      avatar: '🦁',
+      createdAt: new Date().toISOString(),
+    }
+    return { activeProfileId: fallback.id, profiles: [fallback] }
+  }
+}
+
+let familyState: FamilyStoreState = load()
 const listeners = new Set<() => void>()
 
-function setState(updater: (s: GameState) => GameState) {
-  state = updater(state)
+function getActiveProfile(store = familyState): FamilyProfile {
+  return store.profiles.find((p) => p.id === store.activeProfileId) ?? store.profiles[0]
+}
+
+function setFamilyState(updater: (s: FamilyStoreState) => FamilyStoreState) {
+  familyState = updater(familyState)
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+    localStorage.setItem(FAMILY_STORAGE_KEY, JSON.stringify(familyState))
   } catch {
     /* storage cheio/privado: segue apenas em memória */
   }
   listeners.forEach((l) => l())
+}
+
+function updateActiveProfile(updater: (p: FamilyProfile) => FamilyProfile) {
+  setFamilyState((store) => {
+    const current = getActiveProfile(store)
+    const updated = updater(current)
+    return {
+      ...store,
+      profiles: store.profiles.map((p) => (p.id === current.id ? updated : p)),
+    }
+  })
 }
 
 function subscribe(listener: () => void) {
@@ -102,14 +182,14 @@ function subscribe(listener: () => void) {
 // Reavalia regras de tempo periodicamente e ao voltar para a aba
 if (typeof window !== 'undefined') {
   const tick = () => {
-    const n = normalize(state)
-    if (n !== state) setState(() => n)
+    const n = normalizeFamily(familyState)
+    if (n !== familyState) setFamilyState(() => n)
   }
   window.setInterval(tick, 60_000)
   document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && tick())
   window.addEventListener('storage', (e) => {
-    if (e.key === STORAGE_KEY) {
-      state = load()
+    if (e.key === FAMILY_STORAGE_KEY) {
+      familyState = load()
       listeners.forEach((l) => l())
     }
   })
@@ -118,7 +198,7 @@ if (typeof window !== 'undefined') {
 // ---------- ações ----------
 export const gameActions = {
   loseHeart() {
-    setState((s) => ({
+    updateActiveProfile((s) => ({
       ...s,
       hearts: Math.max(0, s.hearts - 1),
       lastHeartUpdate: s.hearts === MAX_HEARTS ? Date.now() : s.lastHeartUpdate,
@@ -126,12 +206,12 @@ export const gameActions = {
   },
 
   refillHearts() {
-    setState((s) => ({ ...s, hearts: MAX_HEARTS, lastHeartUpdate: Date.now() }))
+    updateActiveProfile((s) => ({ ...s, hearts: MAX_HEARTS, lastHeartUpdate: Date.now() }))
   },
 
   /** Conclui a lição: soma XP, atualiza ofensiva e regenera as vidas. */
   completeLesson(lessonId: string, xpEarned: number) {
-    setState((s) => {
+    updateActiveProfile((s) => {
       const today = localDate()
       let streak = s.streak
       if (s.lastActiveDate !== today) {
@@ -159,7 +239,53 @@ export const gameActions = {
   },
 
   resetProgress() {
-    setState(() => ({ ...initialState, lastHeartUpdate: Date.now() }))
+    updateActiveProfile((s) => ({
+      ...s,
+      ...initialGameState,
+      lastHeartUpdate: Date.now(),
+    }))
+  },
+
+  // ---------- gestão de perfis da família ----------
+  switchProfile(profileId: string) {
+    setFamilyState((store) => {
+      if (!store.profiles.some((p) => p.id === profileId)) return store
+      return { ...store, activeProfileId: profileId }
+    })
+  },
+
+  addProfile(name: string, avatar: string) {
+    const cleanName = name.trim() || 'Familiar'
+    const newProfile: FamilyProfile = {
+      ...initialGameState,
+      lastHeartUpdate: Date.now(),
+      id: makeId(),
+      name: cleanName,
+      avatar: avatar || '🦁',
+      createdAt: new Date().toISOString(),
+    }
+    setFamilyState((store) => ({
+      activeProfileId: newProfile.id,
+      profiles: [...store.profiles, newProfile],
+    }))
+  },
+
+  updateProfileInfo(profileId: string, name: string, avatar: string) {
+    const cleanName = name.trim()
+    if (!cleanName) return
+    setFamilyState((store) => ({
+      ...store,
+      profiles: store.profiles.map((p) => (p.id === profileId ? { ...p, name: cleanName, avatar } : p)),
+    }))
+  },
+
+  deleteProfile(profileId: string) {
+    setFamilyState((store) => {
+      if (store.profiles.length <= 1) return store
+      const remaining = store.profiles.filter((p) => p.id !== profileId)
+      const activeProfileId = store.activeProfileId === profileId ? remaining[0].id : store.activeProfileId
+      return { activeProfileId, profiles: remaining }
+    })
   },
 }
 
@@ -186,7 +312,19 @@ export function msToNextHeart(s: GameState) {
 }
 
 // ---------- hook ----------
-export function useGameStore(): GameState & typeof gameActions {
-  const snapshot = useSyncExternalStore(subscribe, () => state, () => state)
-  return { ...snapshot, ...gameActions }
+export type UseGameStoreReturn = FamilyProfile &
+  typeof gameActions & {
+    profiles: FamilyProfile[]
+    activeProfile: FamilyProfile
+  }
+
+export function useGameStore(): UseGameStoreReturn {
+  const store = useSyncExternalStore(subscribe, () => familyState, () => familyState)
+  const activeProfile = getActiveProfile(store)
+  return {
+    ...activeProfile,
+    activeProfile,
+    profiles: store.profiles,
+    ...gameActions,
+  }
 }
